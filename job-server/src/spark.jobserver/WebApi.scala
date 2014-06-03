@@ -18,12 +18,60 @@ import spray.httpx.SprayJsonSupport.sprayJsonMarshaller
 import spray.json.DefaultJsonProtocol._
 import spray.routing.{ HttpService, Route, RequestContext }
 
+//import com.codahale.metrics.{Meter, Gauge, ConsoleReporter, MetricRegistry}
+//import org.apache.spark.metrics.source.Source
+//import java.util.concurrent.TimeUnit
+//import org.apache.spark.{AccumulatorParam, SparkEnv, SparkContext, Accumulator}
+//import scala.collection.mutable
+//import java.util.Properties
+//import org.apache.spark.metrics.sink.Sink
+//import com.codahale.metrics.reporting.DatadogReporter
+//import com.codahale.metrics.reporting.HttpTransport
+
+import scala.collection.mutable.ListBuffer
+import java.io.FileInputStream
+import com.yammer.metrics.reporting.DatadogReporter
+import com.yammer.metrics.Metrics
+import com.yammer.metrics.core.{Counter, Metric, MetricsRegistry}
+import java.util.Properties
+import java.util.concurrent.{TimeUnit, Executors}
+
+
+// class DatadogSink(val registry: MetricRegistry) extends Sink {
+//  val DD_KEY_PERIOD = "period"
+//  val DD_DEFAULT_PERIOD = 10L
+//  val DD_DEFAULT_UNIT = TimeUnit.SECONDS
+//  val DD_DEFAULT_HOST = "localhost:8125"
+
+//  val pollPeriod = Some(DD_DEFAULT_PERIOD).map(_.toLong).get
+//  val pollUnit = Some(DD_DEFAULT_UNIT).map(u => TimeUnit.valueOf(u.toUpperCase)).get
+//  val host = DD_DEFAULT_HOST
+//  val apiKey = "<api-key>"
+
+//  val transport = new HttpTransport("app.datadoghq.com",apikey)
+
+//  val reporter = DatadogReporter.forRegistry(registry)
+//    .convertRatesTo(TimeUnit.SECONDS)
+//    .convertDurationsTo(TimeUnit.MILLISECONDS)
+//    .build(transport,host)
+
+//  override def start() {
+//    reporter.start(pollPeriod, pollUnit)
+//  }
+
+//  override def stop() {
+//    reporter.stop()
+//  }
+// }
+
+
 class WebApi(system: ActorSystem, config: Config, port: Int,
              jarManager: ActorRef, supervisor: ActorRef, jobInfo: ActorRef)
     extends HttpService with CommonRoutes {
   import CommonMessages._
   import ContextSupervisor._
   import scala.concurrent.duration._
+  import com.yammer.metrics.reporting.DatadogReporter.Expansions
 
   // Get spray-json type classes for serializing Map[String, Any]
   import ooyala.common.akka.web.JsonUtils._
@@ -35,6 +83,19 @@ class WebApi(system: ActorSystem, config: Config, port: Int,
   val DefaultJobLimit = 50
   val StatusKey = "status"
   val ResultKey = "result"
+
+/*********************************/
+  val registry = Metrics.defaultRegistry() // default registry, now you can add different metrics
+                                           // to monitor
+  val successCodeCount = registry.newCounter(getClass, "successCode.count") // testing a counter
+  val reporter = new DatadogReporter.Builder()
+    .withApiKey("<api-key>")
+    .withHost("localhost:8125") // send to the datadog-agent
+    .withVmMetricsEnabled(true) // free JVM metrics!
+    .withExpansions(Expansions.ALL)
+    .build() // used the defaultRegistry in the source code
+  reporter.start(10, TimeUnit.SECONDS)
+/*********************************/
 
   val contextTimeout = Try(config.getMilliseconds("spark.jobserver.context-creation-timeout").toInt / 1000)
                          .getOrElse(15)
@@ -150,8 +211,17 @@ class WebApi(system: ActorSystem, config: Config, port: Int,
     } ~ pathPrefix("html") {
       // Static files needed by index.html
       getFromResourceDirectory("html")
-    } ~ path("healthz") {
-      complete("OK")
+    // Prior implementation doesn't explicitly use context which makes the counting static
+    } ~ path("healthz") { context =>
+      // Example of counting a status code.
+      successCodeCount.inc()
+      logger.info("successCodeCount: " + successCodeCount.count())
+      context.complete("OK")
+    // IGNORE. These routes were simply to test 4xx and 5xx status codes
+    } ~ path("deathz") { context =>
+      context.complete(StatusCodes.InternalServerError, "#suicide")
+    } ~ path("badz") {
+      complete(StatusCodes.BadRequest, "#adversary")
     }
   }
 
@@ -227,6 +297,8 @@ class WebApi(system: ActorSystem, config: Config, port: Int,
                     case JobInfo(_, _, _, _, _, Some(e), None) => Map(StatusKey -> "FINISHED")
                   })
               }
+              successCodeCount.inc()
+              logger.info("sucessCode count: " + successCodeCount.count())
               ctx.complete(jobReport)
             }
           }

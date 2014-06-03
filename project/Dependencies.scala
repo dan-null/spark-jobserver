@@ -22,6 +22,13 @@ object Dependencies {
     "io.netty" % "netty" % "3.6.6.Final"
   )
 
+  lazy val monitoringDeps = Seq(
+//    "com.codahale.metrics" % "metrics-core" % "3.0.1",
+//    "com.codahale.metrics" % "metrics-servlet" % "3.0.1",
+    //"com.clipperz" % "metrics-datadog" % "0.0.2",
+    "org.coursera" % "metrics-datadog" % "0.1.6"
+  )
+
   lazy val slickDeps = Seq(
     "com.typesafe.slick" %% "slick" % "2.0.2-RC1",
     "com.h2database" % "h2" % "1.3.170"
@@ -47,6 +54,8 @@ object Dependencies {
   val repos = Seq(
     "Typesafe Repo" at "http://repo.typesafe.com/typesafe/releases/",
     "sonatype snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/",
+    "Datadog metrics resolver" at "https://s3.amazonaws.com/maven.vistarmedia.com/maven/snapshots",
+    "Ooyala Nexus" at "http://nexus.ooyala.com/nexus/content/groups/public/",
     "spray repo" at "http://repo.spray.io"
   )
 }
